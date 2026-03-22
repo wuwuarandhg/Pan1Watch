@@ -132,6 +132,13 @@ const CHANNEL_TYPE_FIELDS: Record<string, { label: string; fields: ChannelFieldD
       { key: 'app_token', label: 'App Token', placeholder: '应用 Token', secret: true, required: true },
     ],
   },
+  pushme: {
+    label: 'PushMe',
+    fields: [
+      { key: 'push_key', label: 'Push Key', placeholder: '在 PushMe APP 上获取', secret: true, required: true },
+      { key: 'server_url', label: '自建服务地址', placeholder: '选填，如 https://your-server:3010' },
+    ],
+  },
 }
 
 const emptyServiceForm: ServiceForm = { name: '', base_url: '', api_key: '' }
