@@ -11,6 +11,7 @@ from sqlalchemy import and_, case, func
 from src.collectors.kline_collector import KlineCollector
 from src.core.entry_candidates import refresh_entry_candidates
 from src.core.json_safe import to_jsonable
+from src.core.reliability import load_strategy_edge_map
 from src.core.strategy_catalog import (
     ensure_strategy_catalog,
     get_effective_weight_map,
@@ -787,6 +788,7 @@ def _compute_factor_breakdown(
     regime_info: dict | None,
     cross_feature: dict | None = None,
     news_metric: dict | None = None,
+    historical_edge: dict | None = None,
 ) -> dict:
     base_score = float(row.score or 0.0)
     action = (row.action or "watch").strip().lower() or "watch"
@@ -804,6 +806,7 @@ def _compute_factor_breakdown(
     event_score = float(_safe_float(nm.get("event_score")) or 0.0)
     event_bias = float(_safe_float(nm.get("event_bias")) or 0.0)
     event_count = int(nm.get("news_count") or 0)
+    edge = historical_edge if isinstance(historical_edge, dict) else {}
 
     alpha_score = _clamp((base_score - 50.0) * 0.45, -12.0, 18.0)
     if relative_strength_pct is not None:
@@ -863,6 +866,10 @@ def _compute_factor_breakdown(
     if relative_strength_pct is not None and relative_strength_pct >= 80:
         source_bonus += 0.8
 
+    edge_bonus = float(_safe_float(edge.get("bonus_points")) or 0.0)
+    edge_penalty = float(_safe_float(edge.get("penalty_points")) or 0.0)
+    edge_multiplier = float(_safe_float(edge.get("weight_multiplier")) or 1.0)
+
     regime = (regime_info or {}).get("regime") or "neutral"
     regime_confidence = float((regime_info or {}).get("confidence") or 0.0)
     regime_multiplier = 1.0
@@ -873,16 +880,28 @@ def _compute_factor_breakdown(
     regime_multiplier += _clamp((regime_confidence - 0.5) * 0.06, -0.03, 0.03)
     regime_multiplier = _clamp(regime_multiplier, 0.85, 1.12)
 
-    raw_score = base_score + alpha_score + catalyst_score + quality_score + source_bonus
+    raw_score = (
+        base_score
+        + alpha_score
+        + catalyst_score
+        + quality_score
+        + source_bonus
+        + edge_bonus
+    )
     raw_score -= risk_penalty
     raw_score -= crowd_penalty
+    raw_score -= edge_penalty
     has_entry = row.entry_low is not None or row.entry_high is not None
     if action in ("buy", "add") and not has_entry:
         # No entry window means this is not executable; force into watch semantics.
         raw_score -= 8.0
     if action in ("buy", "add") and plan_quality < 90:
         raw_score -= 6.0
-    final_score = _clamp(raw_score * float(weight or 1.0) * regime_multiplier, 0.0, 100.0)
+    final_score = _clamp(
+        raw_score * float(weight or 1.0) * regime_multiplier * edge_multiplier,
+        0.0,
+        100.0,
+    )
     # Keep score semantics aligned with action/status: high scores should be actionable.
     if (row.status or "inactive") != "active":
         final_score = min(final_score, 69.0)
@@ -899,6 +918,9 @@ def _compute_factor_breakdown(
         "risk_penalty": round(risk_penalty, 4),
         "crowd_penalty": round(crowd_penalty, 4),
         "source_bonus": round(source_bonus, 4),
+        "edge_bonus": round(edge_bonus, 4),
+        "edge_penalty": round(edge_penalty, 4),
+        "edge_multiplier": round(edge_multiplier, 4),
         "regime": regime,
         "regime_label": _regime_label(regime),
         "regime_multiplier": round(regime_multiplier, 4),
@@ -913,6 +935,17 @@ def _compute_factor_breakdown(
         "event_count": event_count,
         "crowding_risk": round(float(crowding_risk or 0.0), 4),
         "has_entry_plan": bool(has_entry),
+        "historical_edge": {
+            "tier": str(edge.get("tier") or "insufficient"),
+            "scope": str(edge.get("scope") or ""),
+            "sample_size": int(edge.get("sample_size") or 0),
+            "win_rate": round(float(edge.get("win_rate") or 0.0), 2)
+            if edge.get("win_rate") is not None
+            else None,
+            "avg_return_pct": round(float(edge.get("avg_return_pct") or 0.0), 3)
+            if edge.get("avg_return_pct") is not None
+            else None,
+        },
     }
 
 
@@ -1090,6 +1123,7 @@ def _format_signal(
             if factor_snapshot is not None and isinstance(factor_snapshot.factor_payload, dict)
             else {}
         )
+        fp_breakdown = fp.get("score_breakdown") if isinstance(fp.get("score_breakdown"), dict) else {}
         market_regime = fp.get("market_regime") if isinstance(fp.get("market_regime"), dict) else {}
         cross_feature = fp.get("cross_feature") if isinstance(fp.get("cross_feature"), dict) else {}
         news_metric = _normalize_news_metric(
@@ -1113,6 +1147,12 @@ def _format_signal(
                 4,
             ),
             "has_entry_plan": bool(row.entry_low is not None or row.entry_high is not None),
+            "edge_bonus": round(float(fp_breakdown.get("edge_bonus") or 0.0), 4),
+            "edge_penalty": round(float(fp_breakdown.get("edge_penalty") or 0.0), 4),
+            "edge_multiplier": round(float(fp_breakdown.get("edge_multiplier") or 1.0), 4),
+            "historical_edge": fp_breakdown.get("historical_edge")
+            if isinstance(fp_breakdown.get("historical_edge"), dict)
+            else {},
         }
     has_entry_plan = bool(
         row.entry_low is not None
@@ -1250,6 +1290,7 @@ def refresh_strategy_signals(
             existing[(int(cand_id), str(code or ""))] = row
 
         weight_cache: dict[str, dict[str, float]] = {}
+        edge_cache: dict[str, dict[str, dict]] = {}
         touched_keys: set[tuple[int, str]] = set()
         touched_rows: list[StrategySignalRun] = []
 
@@ -1259,6 +1300,10 @@ def refresh_strategy_signals(
             if weights is None:
                 weights = get_effective_weight_map(market=market, regime="default")
                 weight_cache[market] = weights
+            strategy_edges = edge_cache.get(market)
+            if strategy_edges is None:
+                strategy_edges = load_strategy_edge_map(market)
+                edge_cache[market] = strategy_edges
             codes = _strategy_codes_for_candidate(c)
             for code in codes:
                 profile = profile_map.get(code) or profile_map.get("watchlist_agent") or {}
@@ -1285,6 +1330,7 @@ def refresh_strategy_signals(
                     regime_info=regime_info,
                     cross_feature=cross_features.get(int(c.id)) if c.id is not None else None,
                     news_metric=normalized_news_metric,
+                    historical_edge=strategy_edges.get(code),
                 )
                 rank_score = float(score_breakdown.get("weighted_score") or 0.0)
                 confidence = c.confidence if c.confidence is not None else round(rank_score / 100.0, 3)

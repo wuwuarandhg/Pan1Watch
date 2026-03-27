@@ -16,6 +16,7 @@ from src.core.context_store import (
     list_agent_prediction_outcomes,
     list_recent_agent_context_runs,
 )
+from src.core.prediction_metrics import summarize_prediction_outcomes
 from src.core.prediction_outcome import evaluate_pending_prediction_outcomes
 
 router = APIRouter(prefix="/context", tags=["context"])
@@ -154,6 +155,7 @@ def list_context_runs(
 def list_prediction_outcomes(
     agent_name: str | None = None,
     stock_symbol: str | None = None,
+    stock_market: str | None = None,
     status: str | None = None,
     days: int = Query(default=90, ge=1, le=720),
     limit: int = Query(default=200, ge=1, le=1000),
@@ -161,6 +163,7 @@ def list_prediction_outcomes(
     rows = list_agent_prediction_outcomes(
         agent_name=agent_name,
         stock_symbol=stock_symbol,
+        stock_market=stock_market,
         status=status,
         days=days,
         limit=limit,
@@ -186,6 +189,31 @@ def list_prediction_outcomes(
         )
         for r in rows
     ]
+
+
+@router.get("/predictions/summary")
+def get_prediction_summary(
+    stock_symbol: str,
+    stock_market: str | None = None,
+    agent_name: str | None = None,
+    days: int = Query(default=180, ge=1, le=720),
+    limit: int = Query(default=500, ge=1, le=2000),
+):
+    rows = list_agent_prediction_outcomes(
+        agent_name=agent_name,
+        stock_symbol=stock_symbol,
+        stock_market=stock_market,
+        days=days,
+        limit=limit,
+    )
+    summary = summarize_prediction_outcomes(rows)
+    return {
+        "stock_symbol": stock_symbol,
+        "stock_market": stock_market or "",
+        "agent_name": agent_name or "",
+        "days": days,
+        "summary": summary,
+    }
 
 
 @router.post("/predictions/evaluate")

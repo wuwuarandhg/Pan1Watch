@@ -359,6 +359,11 @@ class AkshareCollector(BaseCollector):
                 low_price=item.get("low_price") or item["current_price"] or 0,
                 prev_close=item.get(
                     "prev_close") or item["current_price"] or 0,
+                exchange=item.get("exchange"),
+                turnover_rate=item.get("turnover_rate"),
+                pe_ratio=item.get("pe_ratio"),
+                circulating_market_value=item.get("circulating_market_value"),
+                total_market_value=item.get("total_market_value"),
                 timestamp=datetime.now(),
             )
             for item in fund_items
@@ -422,6 +427,11 @@ class AkshareCollector(BaseCollector):
                 high_price=item["high_price"],
                 low_price=item["low_price"],
                 prev_close=item["prev_close"],
+                exchange=item.get("exchange"),
+                turnover_rate=item.get("turnover_rate"),
+                pe_ratio=item.get("pe_ratio"),
+                circulating_market_value=item.get("circulating_market_value"),
+                total_market_value=item.get("total_market_value"),
                 timestamp=datetime.now(),
             )
             for item in items
@@ -449,6 +459,11 @@ class AkshareCollector(BaseCollector):
                 high_price=item["high_price"],
                 low_price=item["low_price"],
                 prev_close=item["prev_close"],
+                exchange=item.get("exchange"),
+                turnover_rate=item.get("turnover_rate"),
+                pe_ratio=item.get("pe_ratio"),
+                circulating_market_value=item.get("circulating_market_value"),
+                total_market_value=item.get("total_market_value"),
                 timestamp=datetime.now(),
             )
             for item in items
@@ -476,6 +491,11 @@ class AkshareCollector(BaseCollector):
                 high_price=item["high_price"],
                 low_price=item["low_price"],
                 prev_close=item["prev_close"],
+                exchange=item.get("exchange"),
+                turnover_rate=item.get("turnover_rate"),
+                pe_ratio=item.get("pe_ratio"),
+                circulating_market_value=item.get("circulating_market_value"),
+                total_market_value=item.get("total_market_value"),
                 timestamp=datetime.now(),
             )
             for item in items

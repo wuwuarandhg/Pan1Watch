@@ -6,6 +6,7 @@ from src.collectors.akshare_collector import (
     _fetch_tencent_quotes,
     _fetch_fund_quotes,
 )
+from src.core.fundamentals import build_fundamental_snapshot
 from src.models.market import MarketCode
 
 router = APIRouter()
@@ -87,6 +88,27 @@ def _quote_to_response(symbol: str, market: str, quote: dict | None) -> dict:
         "jzrq": quote.get("jzrq"),
         "has_estimate": has_estimate,
     }
+
+
+@router.get("/fundamentals/{symbol}")
+def get_quote_fundamentals(symbol: str, market: str = "CN"):
+    """获取单只股票的基本面/估值快照。"""
+    market_code = _parse_market(market)
+    if market_code == "FUND":
+        items = _fetch_fund_quotes([symbol])
+        quote_map = {item["symbol"]: item for item in items}
+        quote = quote_map.get(symbol)
+    else:
+        enum_market = MarketCode(market_code)
+        tencent_symbol = _tencent_symbol(symbol, enum_market)
+        items = _fetch_tencent_quotes([tencent_symbol])
+        quote_map = {item["symbol"]: item for item in items}
+        quote = quote_map.get(symbol)
+
+    if not quote:
+        raise HTTPException(404, "行情不存在")
+    quote_payload = _quote_to_response(symbol, market_code, quote)
+    return build_fundamental_snapshot(quote_payload)
 
 
 @router.get("/{symbol}")

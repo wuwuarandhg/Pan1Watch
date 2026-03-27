@@ -18,6 +18,9 @@ export const insightApi = {
   quote: <T>(symbol: string, market: string) =>
     fetchAPI<T>(`/quotes/${encodeURIComponent(symbol)}?market=${encodeURIComponent(market)}`),
 
+  fundamentals: <T>(symbol: string, market: string) =>
+    fetchAPI<T>(`/quotes/fundamentals/${encodeURIComponent(symbol)}?market=${encodeURIComponent(market)}`),
+
   klineSummary: <T>(symbol: string, market: string) =>
     fetchAPI<T>(`/klines/${encodeURIComponent(symbol)}/summary?market=${encodeURIComponent(market)}`),
 
@@ -45,6 +48,17 @@ export const insightApi = {
   news: <T>(params: Record<string, QueryValue>) => fetchAPI<T>(withQuery('/news', params)),
 
   history: <T>(params: Record<string, QueryValue>) => fetchAPI<T>(withQuery('/history', params)),
+
+  predictionSummary: <T>(params: { stock_symbol: string; stock_market?: string; agent_name?: string; days?: number; limit?: number }) =>
+    fetchAPI<T>(
+      withQuery('/context/predictions/summary', {
+        stock_symbol: params.stock_symbol,
+        stock_market: params.stock_market,
+        agent_name: params.agent_name,
+        days: params.days,
+        limit: params.limit,
+      })
+    ),
 
   portfolioSummary: <T>(params?: { include_quotes?: boolean }) =>
     fetchAPI<T>(

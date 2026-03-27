@@ -13,6 +13,7 @@ from src.core.context_store import (
     save_agent_context_run,
     save_agent_prediction_outcome,
 )
+from src.core.reliability import calibrate_agent_suggestion
 from src.core.signals import SignalPackBuilder
 from src.core.signals.structured_output import (
     TAG_START,
@@ -148,6 +149,15 @@ class DailyReportAgent(BaseAgent):
                 lines.append(
                     f"- 数据质量：{stock_quality.get('score', 0)}（实时新闻 {stock_quality.get('realtime_news_count', 0)} 条，扩展新闻 {stock_quality.get('extended_news_count', 0)} 条，历史新闻 {stock_quality.get('history_news_count', 0)} 条）"
                 )
+            fundamental = (pack.fundamental if pack else None) or {}
+            if fundamental.get("available"):
+                lines.append(
+                    f"- 基本面因子：综合 {float(fundamental.get('composite_score') or 0):.0f}，{fundamental.get('summary', '')}"
+                )
+                if fundamental.get("pe_ratio") is not None:
+                    lines.append(
+                        f"- 估值：PE {float(fundamental.get('pe_ratio')):.2f}（{fundamental.get('valuation_band', '未知')}）"
+                    )
 
             # 基本行情
             if quote:
@@ -595,6 +605,21 @@ class DailyReportAgent(BaseAgent):
                     .get("data_quality", {})
                     .get("score")
                 )
+                sug, calibration = calibrate_agent_suggestion(
+                    suggestion=sug,
+                    agent_name=self.name,
+                    stock_symbol=symbol,
+                    stock_market=stock.market.value,
+                    is_holding=bool(context.portfolio.get_positions_for_stock(symbol)),
+                    kline_summary=(pack.technical if pack else None),
+                    quote_change_pct=(
+                        getattr(pack.quote, "change_pct", None)
+                        if pack and pack.quote
+                        else None
+                    ),
+                    quality_score=quality_score,
+                )
+                suggestions[symbol] = sug
                 save_suggestion(
                     stock_symbol=symbol,
                     stock_name=stock.name,
@@ -612,6 +637,7 @@ class DailyReportAgent(BaseAgent):
                         "analysis_date": analysis_date,
                         "source": "daily_report",
                         "context_quality_score": quality_score,
+                        "calibration": calibration,
                         "plan": {
                             "triggers": sug.get("triggers")
                             if isinstance(sug.get("triggers"), list)
@@ -644,6 +670,7 @@ class DailyReportAgent(BaseAgent):
                             "source": "daily_report",
                             "reason": sug.get("reason", ""),
                             "signal": sug.get("signal", ""),
+                            "calibration": calibration,
                         },
                     )
 

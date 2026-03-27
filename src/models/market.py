@@ -107,6 +107,11 @@ class StockData:
     high_price: float
     low_price: float
     prev_close: float
+    exchange: str | None = None
+    turnover_rate: float | None = None
+    pe_ratio: float | None = None
+    circulating_market_value: float | None = None
+    total_market_value: float | None = None
     timestamp: datetime = field(default_factory=datetime.now)
 
 

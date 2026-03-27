@@ -318,6 +318,7 @@ def list_agent_prediction_outcomes(
     *,
     agent_name: str | None = None,
     stock_symbol: str | None = None,
+    stock_market: str | None = None,
     status: str | None = None,
     days: int = 90,
     limit: int = 200,
@@ -332,6 +333,8 @@ def list_agent_prediction_outcomes(
             q = q.filter(AgentPredictionOutcome.agent_name == agent_name)
         if stock_symbol:
             q = q.filter(AgentPredictionOutcome.stock_symbol == stock_symbol)
+        if stock_market:
+            q = q.filter(AgentPredictionOutcome.stock_market == stock_market)
         if status:
             q = q.filter(AgentPredictionOutcome.outcome_status == status)
         return (

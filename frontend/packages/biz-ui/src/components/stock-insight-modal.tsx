@@ -37,6 +37,55 @@ interface QuoteResponse {
   circulating_market_value?: number | null
 }
 
+interface FundamentalFactor {
+  key: string
+  label: string
+  value?: number | null
+  score?: number | null
+  band?: string | null
+  note?: string
+}
+
+interface FundamentalResponse {
+  available: boolean
+  composite_score?: number | null
+  valuation_score?: number | null
+  quality_score?: number | null
+  liquidity_score?: number | null
+  valuation_band?: string | null
+  size_label?: string | null
+  turnover_band?: string | null
+  pe_ratio?: number | null
+  turnover_rate?: number | null
+  total_market_value?: number | null
+  summary?: string
+  missing_metrics?: string[]
+  factors?: FundamentalFactor[]
+}
+
+interface PredictionAgentSummary {
+  agent_name: string
+  evaluated: number
+  hit_count: number
+  hit_rate?: number | null
+  avg_return_pct?: number | null
+}
+
+interface PredictionSummaryResponse {
+  stock_symbol: string
+  stock_market?: string
+  summary: {
+    evaluated: number
+    hit_count: number
+    hit_rate?: number | null
+    avg_return_pct?: number | null
+    bullish_hit_rate?: number | null
+    bearish_hit_rate?: number | null
+    neutral_hit_rate?: number | null
+    by_agent: PredictionAgentSummary[]
+  }
+}
+
 interface KlineSummaryResponse {
   symbol: string
   market: string
@@ -422,6 +471,7 @@ export default function StockInsightModal(props: {
   const prevQuoteRef = useRef<{ current_price: number | null; change_pct: number | null } | null>(null)
   const quoteStateRef = useRef<QuoteResponse | null>(null)
   const [quote, setQuote] = useState<QuoteResponse | null>(null)
+  const [fundamentals, setFundamentals] = useState<FundamentalResponse | null>(null)
   const [klineSummary, setKlineSummary] = useState<KlineSummary | null>(null)
   const [miniKlines, setMiniKlines] = useState<MiniKlineResponse['klines']>([])
   const [miniKlineLoading, setMiniKlineLoading] = useState(false)
@@ -450,6 +500,7 @@ export default function StockInsightModal(props: {
   } | null>(null)
   const [holdingLoaded, setHoldingLoaded] = useState(false)
   const [holdingLoadError, setHoldingLoadError] = useState(false)
+  const [predictionSummary, setPredictionSummary] = useState<PredictionSummaryResponse | null>(null)
   const autoTriggeredRef = useRef<Record<string, number>>({})
   const stockCacheRef = useRef<Record<string, StockItem>>({})
   const resolvedName = useMemo(() => props.stockName || quote?.name || symbol, [props.stockName, quote?.name, symbol])
@@ -461,6 +512,17 @@ export default function StockInsightModal(props: {
     setAutoRefreshChanged(!isSameQuoteSnapshot(quoteStateRef.current, next))
     setLastUpdatedAt(Date.now())
     setQuote(data || null)
+  }, [symbol, market])
+
+  const loadFundamentals = useCallback(async () => {
+    if (!symbol) return
+    try {
+      const data = await insightApi.fundamentals<FundamentalResponse>(symbol, market)
+      setLastUpdatedAt(Date.now())
+      setFundamentals(data || null)
+    } catch {
+      setFundamentals(null)
+    }
   }, [symbol, market])
 
   const loadKline = useCallback(async () => {
@@ -515,6 +577,22 @@ export default function StockInsightModal(props: {
     setLastUpdatedAt(Date.now())
     setSuggestions(list)
   }, [symbol, market, includeExpiredSuggestions])
+
+  const loadPredictionSummary = useCallback(async () => {
+    if (!symbol) return
+    try {
+      const data = await insightApi.predictionSummary<PredictionSummaryResponse>({
+        stock_symbol: symbol,
+        stock_market: market,
+        days: 180,
+        limit: 300,
+      })
+      setLastUpdatedAt(Date.now())
+      setPredictionSummary(data || null)
+    } catch {
+      setPredictionSummary(null)
+    }
+  }, [symbol, market])
 
   const loadNews = useCallback(async () => {
     if (!symbol) return
@@ -738,29 +816,47 @@ export default function StockInsightModal(props: {
     if (!symbol) return
     setLoading(true)
     try {
-      await Promise.allSettled([loadQuote(), loadKline(), loadMiniKline(), loadHoldingAgg()])
+      await Promise.allSettled([
+        loadQuote(),
+        loadFundamentals(),
+        loadPredictionSummary(),
+        loadKline(),
+        loadMiniKline(),
+        loadHoldingAgg(),
+      ])
     } catch (e) {
       toast(e instanceof Error ? e.message : '加载失败', 'error')
     } finally {
       setLoading(false)
     }
-  }, [symbol, loadQuote, loadKline, loadMiniKline, loadHoldingAgg, toast])
+  }, [symbol, loadQuote, loadFundamentals, loadPredictionSummary, loadKline, loadMiniKline, loadHoldingAgg, toast])
 
   const handleRefreshAll = useCallback(async () => {
     if (!symbol) return
     setLoading(true)
     try {
-      await Promise.allSettled([loadQuote(), loadKline(), loadMiniKline(), loadSuggestions(), loadNews(), loadAnnouncements(), loadHoldingAgg(), loadReports()])
+      await Promise.allSettled([
+        loadQuote(),
+        loadFundamentals(),
+        loadPredictionSummary(),
+        loadKline(),
+        loadMiniKline(),
+        loadSuggestions(),
+        loadNews(),
+        loadAnnouncements(),
+        loadHoldingAgg(),
+        loadReports(),
+      ])
     } catch (e) {
       toast(e instanceof Error ? e.message : '加载失败', 'error')
     } finally {
       setLoading(false)
     }
-  }, [symbol, loadQuote, loadKline, loadMiniKline, loadSuggestions, loadNews, loadAnnouncements, loadHoldingAgg, loadReports, toast])
+  }, [symbol, loadQuote, loadFundamentals, loadPredictionSummary, loadKline, loadMiniKline, loadSuggestions, loadNews, loadAnnouncements, loadHoldingAgg, loadReports, toast])
 
   const refreshForAuto = useCallback(async () => {
     if (!symbol) return
-    const tasks: Promise<any>[] = [loadQuote(), loadHoldingAgg()]
+    const tasks: Promise<any>[] = [loadQuote(), loadFundamentals(), loadPredictionSummary(), loadHoldingAgg()]
     if (tab === 'overview' || tab === 'kline') {
       tasks.push(loadKline(), loadMiniKline({ silent: true }))
     }
@@ -777,7 +873,7 @@ export default function StockInsightModal(props: {
       tasks.push(loadReports())
     }
     await Promise.allSettled(tasks)
-  }, [symbol, tab, loadQuote, loadHoldingAgg, loadKline, loadMiniKline, loadSuggestions, loadNews, loadAnnouncements, loadReports])
+  }, [symbol, tab, loadQuote, loadFundamentals, loadPredictionSummary, loadHoldingAgg, loadKline, loadMiniKline, loadSuggestions, loadNews, loadAnnouncements, loadReports])
 
   useEffect(() => {
     if (!props.open || !symbol) return
@@ -787,6 +883,8 @@ export default function StockInsightModal(props: {
     setAnnouncements([])
     setReports([])
     setMiniKlines([])
+    setFundamentals(null)
+    setPredictionSummary(null)
     setWatchingStock(null)
     loadCore()
   }, [props.open, symbol, market, loadCore])
@@ -1774,6 +1872,46 @@ export default function StockInsightModal(props: {
                         <div className="text-[11px] text-muted-foreground">未在持仓中</div>
                       )}
                     </div>
+                    <div className="mt-3 border-t border-border/50 pt-3">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="text-[11px] text-muted-foreground">基本面快照</div>
+                        {fundamentals?.composite_score != null && (
+                          <div className="text-[11px] font-mono text-primary">综合 {Number(fundamentals.composite_score).toFixed(0)}</div>
+                        )}
+                      </div>
+                      {fundamentals?.available ? (
+                        <>
+                          <div className="grid grid-cols-2 gap-2 text-[12px]">
+                            <div className="rounded bg-sky-500/10 px-2 py-1.5">
+                              <div className="text-[10px] text-muted-foreground">估值区间</div>
+                              <div className="font-mono">{fundamentals.valuation_band || '--'}</div>
+                            </div>
+                            <div className="rounded bg-sky-500/10 px-2 py-1.5">
+                              <div className="text-[10px] text-muted-foreground">市值分层</div>
+                              <div className="font-mono">{fundamentals.size_label || '--'}</div>
+                            </div>
+                            <div className="rounded bg-sky-500/10 px-2 py-1.5">
+                              <div className="text-[10px] text-muted-foreground">流动性</div>
+                              <div className="font-mono">{fundamentals.turnover_band || '--'}</div>
+                            </div>
+                            <div className="rounded bg-sky-500/10 px-2 py-1.5">
+                              <div className="text-[10px] text-muted-foreground">财务质量</div>
+                              <div className="font-mono">{fundamentals.quality_score != null ? Number(fundamentals.quality_score).toFixed(0) : '--'}</div>
+                            </div>
+                          </div>
+                          <div className="mt-2 text-[11px] text-foreground/90">
+                            {fundamentals.summary || '当前以估值与流动性因子为主'}
+                          </div>
+                          {!!fundamentals.missing_metrics?.length && (
+                            <div className="mt-1 text-[10px] text-muted-foreground">
+                              待补数据: {fundamentals.missing_metrics.slice(0, 4).join(' / ')}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="text-[11px] text-muted-foreground">暂无基本面快照</div>
+                      )}
+                    </div>
                   </div>
 
                   <div className="card p-4 h-full">
@@ -1882,6 +2020,17 @@ export default function StockInsightModal(props: {
                             ))}
                           </div>
                         )}
+                        {predictionSummary?.summary?.evaluated ? (
+                          <div className="rounded bg-accent/10 p-2 text-[11px]">
+                            <div className="text-muted-foreground">历史后验</div>
+                            <div className="mt-1 text-foreground">
+                              已评估 {predictionSummary.summary.evaluated} 条，方向命中率 {predictionSummary.summary.hit_rate != null ? `${predictionSummary.summary.hit_rate.toFixed(2)}%` : '--'}
+                            </div>
+                            <div className="mt-1 text-muted-foreground">
+                              平均收益 {predictionSummary.summary.avg_return_pct != null ? `${predictionSummary.summary.avg_return_pct >= 0 ? '+' : ''}${predictionSummary.summary.avg_return_pct.toFixed(2)}%` : '--'}
+                            </div>
+                          </div>
+                        ) : null}
                         <div className="text-[10px] text-primary min-h-[14px]">{autoSuggesting && suggestions.length === 0 ? '正在自动生成 AI 建议...' : ''}</div>
                       </div>
                     ) : (
@@ -2036,6 +2185,31 @@ export default function StockInsightModal(props: {
                       aria-label="显示过期建议"
                     />
                   </div>
+                </div>
+                <div className="card p-3">
+                  <div className="text-[12px] text-muted-foreground">建议后验摘要</div>
+                  {predictionSummary?.summary?.evaluated ? (
+                    <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-[12px]">
+                      <div className="rounded bg-accent/15 px-2 py-1.5">
+                        <div className="text-[10px] text-muted-foreground">已评估</div>
+                        <div className="font-mono">{predictionSummary.summary.evaluated}</div>
+                      </div>
+                      <div className="rounded bg-accent/15 px-2 py-1.5">
+                        <div className="text-[10px] text-muted-foreground">方向命中率</div>
+                        <div className="font-mono">{predictionSummary.summary.hit_rate != null ? `${predictionSummary.summary.hit_rate.toFixed(2)}%` : '--'}</div>
+                      </div>
+                      <div className="rounded bg-accent/15 px-2 py-1.5">
+                        <div className="text-[10px] text-muted-foreground">多头命中率</div>
+                        <div className="font-mono">{predictionSummary.summary.bullish_hit_rate != null ? `${predictionSummary.summary.bullish_hit_rate.toFixed(2)}%` : '--'}</div>
+                      </div>
+                      <div className="rounded bg-accent/15 px-2 py-1.5">
+                        <div className="text-[10px] text-muted-foreground">平均收益</div>
+                        <div className="font-mono">{predictionSummary.summary.avg_return_pct != null ? `${predictionSummary.summary.avg_return_pct >= 0 ? '+' : ''}${predictionSummary.summary.avg_return_pct.toFixed(2)}%` : '--'}</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-2 text-[11px] text-muted-foreground">暂无已评估建议，需等待历史建议进入后验周期。</div>
+                  )}
                 </div>
                 {suggestions.length === 0 ? (
                   technicalFallbackSuggestion ? (

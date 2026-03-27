@@ -15,6 +15,7 @@ from src.core.context_store import (
     save_agent_context_run,
     save_agent_prediction_outcome,
 )
+from src.core.reliability import calibrate_agent_suggestion
 from src.core.suggestion_pool import save_suggestion
 from src.core.signals import SignalPackBuilder
 from src.core.signals.structured_output import try_parse_action_json
@@ -251,6 +252,16 @@ class IntradayMonitorAgent(BaseAgent):
             lines.append(
                 f"- 上下文质量：{quality.get('score', 0)}（实时新闻 {quality.get('realtime_news_count', 0)} 条，扩展新闻 {quality.get('extended_news_count', 0)} 条，历史新闻 {quality.get('history_news_count', 0)} 条）"
             )
+        pack = data.get("signal_pack")
+        fundamental = (pack.fundamental if pack else None) or {}
+        if fundamental.get("available"):
+            lines.append(
+                f"- 基本面因子：综合 {float(fundamental.get('composite_score') or 0):.0f}，{fundamental.get('summary', '')}"
+            )
+            if fundamental.get("pe_ratio") is not None:
+                lines.append(
+                    f"- 估值：PE {float(fundamental.get('pe_ratio')):.2f}（{fundamental.get('valuation_band', '未知')}）"
+                )
 
         layered_news = symbol_ctx.get("news") or {}
         realtime_news = layered_news.get("realtime") or []
@@ -744,10 +755,30 @@ class IntradayMonitorAgent(BaseAgent):
             (data.get("symbol_context") or {}).get(
                 "data_quality", {}).get("score")
         )
+        positions = context.portfolio.get_positions_for_stock(stock.symbol)
+        suggestion, calibration = calibrate_agent_suggestion(
+            suggestion=suggestion,
+            agent_name=self.name,
+            stock_symbol=stock.symbol,
+            stock_market=stock.market.value,
+            is_holding=bool(positions),
+            kline_summary=data.get("kline_summary"),
+            quote_change_pct=getattr(stock, "change_pct", None),
+            quality_score=quality_score,
+        )
         # JSON/类 JSON 输出时，统一转换为可读通知文本，避免渠道直接推送原始 JSON
-        if try_parse_action_json(raw_content) or self._try_parse_loose_json(raw_content):
+        if (
+            try_parse_action_json(raw_content)
+            or self._try_parse_loose_json(raw_content)
+            or calibration.get("applied")
+        ):
             content = self._format_human_readable_content(
                 stock, suggestion, raw_content)
+            if calibration.get("applied"):
+                content = (
+                    content.rstrip()
+                    + f"\n校准：{calibration.get('reason', '')}"
+                )
 
         # 保存到建议池（包含 prompt 上下文）
         save_suggestion(
@@ -775,6 +806,7 @@ class IntradayMonitorAgent(BaseAgent):
                 "event_gate": data.get("event_gate"),
                 "analysis_date": analysis_date,
                 "context_quality_score": quality_score,
+                "calibration": calibration,
                 "plan": {
                     "triggers": suggestion.get("triggers")
                     if isinstance(suggestion, dict)
@@ -805,6 +837,7 @@ class IntradayMonitorAgent(BaseAgent):
                     "source": "intraday_monitor",
                     "reason": suggestion.get("reason", ""),
                     "signal": suggestion.get("signal", ""),
+                    "calibration": calibration,
                 },
             )
 

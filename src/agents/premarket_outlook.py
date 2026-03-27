@@ -17,6 +17,7 @@ from src.core.context_store import (
     save_agent_context_run,
     save_agent_prediction_outcome,
 )
+from src.core.reliability import calibrate_agent_suggestion
 from src.core.signals.structured_output import (
     TAG_START,
     strip_tagged_json,
@@ -316,6 +317,15 @@ class PremarketOutlookAgent(BaseAgent):
                 )
                 if not stock_coverage.get("news_realtime"):
                     lines.append("- 备注：实时新闻缺失，已回退扩展/历史上下文")
+            fundamental = (pack.fundamental if pack else None) or {}
+            if fundamental.get("available"):
+                lines.append(
+                    f"- 基本面因子：综合 {float(fundamental.get('composite_score') or 0):.0f}，{fundamental.get('summary', '')}"
+                )
+                if fundamental.get("pe_ratio") is not None:
+                    lines.append(
+                        f"- 估值：PE {float(fundamental.get('pe_ratio')):.2f}（{fundamental.get('valuation_band', '未知')}）"
+                    )
             last_close = tech.get("last_close")
             if last_close is not None:
                 lines.append(f"- 昨收价：{last_close:.2f}")
@@ -735,6 +745,21 @@ class PremarketOutlookAgent(BaseAgent):
                     .get("data_quality", {})
                     .get("score")
                 )
+                sug, calibration = calibrate_agent_suggestion(
+                    suggestion=sug,
+                    agent_name=self.name,
+                    stock_symbol=symbol,
+                    stock_market=stock.market.value,
+                    is_holding=bool(context.portfolio.get_positions_for_stock(symbol)),
+                    kline_summary=(pack.technical if pack else None),
+                    quote_change_pct=(
+                        getattr(pack.quote, "change_pct", None)
+                        if pack and pack.quote
+                        else None
+                    ),
+                    quality_score=quality_score,
+                )
+                suggestions[symbol] = sug
                 ok = save_suggestion(
                     stock_symbol=symbol,
                     stock_name=stock.name,
@@ -752,6 +777,7 @@ class PremarketOutlookAgent(BaseAgent):
                         "analysis_date": analysis_date,
                         "source": "premarket_outlook",
                         "context_quality_score": quality_score,
+                        "calibration": calibration,
                         "plan": {
                             "triggers": sug.get("triggers")
                             if isinstance(sug.get("triggers"), list)
@@ -788,6 +814,7 @@ class PremarketOutlookAgent(BaseAgent):
                             "source": "premarket_outlook",
                             "reason": sug.get("reason", ""),
                             "signal": sug.get("signal", ""),
+                            "calibration": calibration,
                         },
                     )
                     if ok_outcome:

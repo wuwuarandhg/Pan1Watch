@@ -12,6 +12,7 @@ from src.collectors.discovery_collector import EastMoneyDiscoveryCollector
 from src.collectors.kline_collector import KlineCollector
 from src.core.json_safe import to_jsonable
 from src.core.notifier import get_global_proxy
+from src.core.reliability import get_candidate_source_edge
 from src.core.timezone import to_iso_with_tz, utc_now
 from src.models.market import MarketCode
 from src.web.database import SessionLocal
@@ -701,7 +702,12 @@ def _derive_market_scan_decision(quote: dict | None, kline: dict | None) -> dict
 
 
 def _score_market_scan_candidate(
-    *, action: str, quote: dict | None, kline: dict | None, strategy_tags: list[str] | None
+    *,
+    action: str,
+    quote: dict | None,
+    kline: dict | None,
+    strategy_tags: list[str] | None,
+    market: str,
 ) -> tuple[float, list[str]]:
     score = ACTION_BASE_SCORE.get((action or "").strip().lower(), 45.0)
     evidence: list[str] = []
@@ -738,6 +744,22 @@ def _score_market_scan_candidate(
     elif trend == "空头排列":
         score -= 6
         evidence.append("均线空头排列")
+
+    edge = get_candidate_source_edge("market_scan", market)
+    penalty_points = float(edge.get("penalty_points") or 0.0)
+    bonus_points = float(edge.get("bonus_points") or 0.0)
+    edge_avg_ret = float(edge.get("avg_return_pct") or 0.0)
+    edge_win_rate = float(edge.get("win_rate") or 0.0)
+    if penalty_points > 0:
+        score -= penalty_points
+        evidence.append(
+            f"历史后验偏弱({market}/{edge.get('scope')} {edge_avg_ret:+.2f}%/{edge_win_rate:.0f}%)"
+        )
+    elif bonus_points > 0:
+        score += bonus_points
+        evidence.append(
+            f"历史后验正向({market}/{edge.get('scope')} {edge_avg_ret:+.2f}%/{edge_win_rate:.0f}%)"
+        )
 
     score = _clamp(score, 0.0, 100.0)
     return score, evidence[:8]
@@ -1448,6 +1470,7 @@ def refresh_entry_candidates(
                     quote=quote,
                     kline=kline,
                     strategy_tags=strategy_tags,
+                    market=market,
                 )
 
             if is_holding and action == "buy":

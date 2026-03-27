@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from src.collectors.akshare_collector import AkshareCollector
 from src.collectors.kline_collector import KlineCollector
 from src.collectors.news_collector import NewsCollector, NewsItem
+from src.core.fundamentals import build_fundamental_snapshot
 from src.models.market import MarketCode
 from src.models.market import StockData
 
@@ -40,6 +41,7 @@ class SignalPack:
     market: MarketCode
     computed_at: str
     quote: StockData | None = None
+    fundamental: dict | None = None
     technical: dict | None = None  # kline_summary
     position: PositionSnapshot | None = None
     news: NewsSnapshot | None = None
@@ -451,6 +453,9 @@ class SignalPackBuilder:
                 market=market,
                 computed_at=computed_at,
                 quote=quote_map.get(sym),
+                fundamental=build_fundamental_snapshot(quote_map.get(sym))
+                if quote_map.get(sym) is not None
+                else None,
                 technical=tech_map.get(sym) if include_technical else None,
                 position=PositionSnapshot(
                     has_position=bool(pos_list),
