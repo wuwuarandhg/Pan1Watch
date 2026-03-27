@@ -107,7 +107,12 @@ CHANNEL_TYPES = {
     },
     "pushme": {
         "label": "PushMe",
-        "fields": ["push_key", "server_url"],  # server_url 选填，自建服务时填写
+        "fields": [
+            "push_key",
+            "server_url",
+            "group_name",
+            "group_avatar",
+        ],  # server_url/group_name/group_avatar 选填
     },
 }
 
@@ -122,6 +127,22 @@ _MARKDOWN_CHANNELS = {"wecom", "serverchan", "pushplus", "dingtalk", "lark", "di
 
 # 不支持 Markdown 的渠道（需要 sanitize）
 _PLAIN_TEXT_CHANNELS = {"telegram", "bark", "pushover"}
+
+
+def build_pushme_title(config: dict, title: str) -> str:
+    """按 PushMe 规范为标题附加分组及头像信息。"""
+    title_text = title or "通知"
+    group_name = (config.get("group_name") or "").strip()
+    if not group_name:
+        return title_text
+
+    group_avatar = (config.get("group_avatar") or "").strip()
+    group_tag = f"[#{group_name}!{group_avatar}]" if group_avatar else f"[#{group_name}]"
+
+    theme_match = re.match(r"^(\[[iswf]\])", title_text)
+    if theme_match:
+        return f"{theme_match.group(1)}{group_tag}{title_text[theme_match.end():]}"
+    return f"{group_tag}{title_text}"
 
 
 def build_apprise_url(channel_type: str, config: dict) -> str | None:
@@ -476,9 +497,10 @@ class NotifierManager:
 
         server_url = (config.get("server_url") or "https://push.i-i.me").rstrip("/")
         url = f"{server_url}/"
+        formatted_title = build_pushme_title(config, title)
         payload = {
             "push_key": push_key,
-            "title": title or "通知",
+            "title": formatted_title,
             "content": content,
             "type": "markdown",
         }
@@ -488,4 +510,4 @@ class NotifierManager:
             result = resp.text.strip()
             if result != "success":
                 raise RuntimeError(f"PushMe 发送失败: {result}")
-            logger.info(f"PushMe 通知发送成功: {title}")
+            logger.info(f"PushMe 通知发送成功: {formatted_title}")

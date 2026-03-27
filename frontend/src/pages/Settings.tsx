@@ -137,6 +137,8 @@ const CHANNEL_TYPE_FIELDS: Record<string, { label: string; fields: ChannelFieldD
     fields: [
       { key: 'push_key', label: 'Push Key', placeholder: '在 PushMe APP 上获取', secret: true, required: true },
       { key: 'server_url', label: '自建服务地址', placeholder: '选填，如 https://your-server:3010' },
+      { key: 'group_name', label: '消息分组', placeholder: '选填，如 PanWatch' },
+      { key: 'group_avatar', label: '分组头像', placeholder: '选填，支持 emoji、文字或图片 URL' },
     ],
   },
 }
