@@ -164,6 +164,13 @@ class BaseAgent(ABC):
         """
         ...
 
+    def schedule_skip_reason(self, stock: StockConfig) -> str | None:
+        """定时调度单股执行前的门禁检查。
+
+        返回非空字符串表示应跳过该股票，并将该字符串用于日志。
+        """
+        return None
+
     async def analyze(self, context: AgentContext, data: dict) -> AnalysisResult:
         """调用 AI 分析"""
         system_prompt, user_content = self.build_prompt(data, context)

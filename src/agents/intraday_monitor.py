@@ -101,6 +101,12 @@ class IntradayMonitorAgent(BaseAgent):
         self.stop_loss_warning = stop_loss_warning
         self.take_profit_warning = take_profit_warning
 
+    def schedule_skip_reason(self, stock) -> str | None:
+        market = getattr(stock, "market", None) or MarketCode.CN
+        if not is_market_trading(market):
+            return f"当前{market_label(market)}非交易时段"
+        return None
+
     async def collect(self, context: AgentContext) -> dict:
         """采集实时行情 + K线 + 历史分析"""
         if not context.watchlist:

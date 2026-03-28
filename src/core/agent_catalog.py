@@ -15,6 +15,7 @@ AGENT_KIND_CAPABILITY = "capability"
 WORKFLOW_AGENT_NAMES: tuple[str, ...] = (
     "premarket_outlook",
     "intraday_monitor",
+    "postmarket_chart_monitor",
     "daily_report",
     "fund_holding_analyst",
 )
@@ -117,6 +118,25 @@ AGENT_SEED_SPECS: tuple[AgentSeedSpec, ...] = (
         display_order=30,
     ),
     AgentSeedSpec(
+        name="postmarket_chart_monitor",
+        display_name="盘后K线监控",
+        description="A股收盘后截取持仓日K图，AI分析趋势、支撑压力和持仓建议",
+        enabled=False,
+        schedule="30 15 * * 1-5",
+        execution_mode="single",
+        kind=AGENT_KIND_WORKFLOW,
+        visible=True,
+        display_order=35,
+        config={
+            "provider": "xueqiu",
+            "period": "daily",
+            "holding_only": True,
+            "notify_on_hold": True,
+            "notify_on_watch": False,
+            "throttle_minutes": 720,
+        },
+    ),
+    AgentSeedSpec(
         name="news_digest",
         display_name="新闻速递（能力）",
         description="内部能力：提供新闻抓取、去重与主题聚合，不独立调度",
@@ -161,4 +181,3 @@ AGENT_SEED_SPECS: tuple[AgentSeedSpec, ...] = (
         },
     ),
 )
-

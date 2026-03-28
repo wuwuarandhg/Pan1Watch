@@ -39,6 +39,7 @@ from src.agents.daily_report import DailyReportAgent
 from src.agents.news_digest import NewsDigestAgent
 from src.agents.chart_analyst import ChartAnalystAgent
 from src.agents.intraday_monitor import IntradayMonitorAgent
+from src.agents.postmarket_chart_monitor import PostmarketChartMonitorAgent
 from src.agents.premarket_outlook import PremarketOutlookAgent
 from src.agents.fund_holding_analyst import FundHoldingAnalystAgent
 
@@ -805,6 +806,7 @@ AGENT_REGISTRY: dict[str, type] = {
     "news_digest": NewsDigestAgent,
     "chart_analyst": ChartAnalystAgent,
     "intraday_monitor": IntradayMonitorAgent,
+    "postmarket_chart_monitor": PostmarketChartMonitorAgent,
     "fund_holding_analyst": FundHoldingAnalystAgent,
 }
 
@@ -1099,19 +1101,16 @@ async def trigger_agent_for_stock(
         suppress_notify=suppress_notify,
     )
 
-    # 创建 agent，支持 intraday_monitor 的手动触发参数
-    if agent_name == "intraday_monitor":
-        agent = _build_agent_instance(
-            agent_cls=agent_cls,
-            agent_name=agent_name,
-            kwargs={
-                "bypass_throttle": bypass_throttle,
-                "bypass_market_hours": bypass_market_hours,
-            },
-        )
-    else:
-        agent = _build_agent_instance(
-            agent_cls=agent_cls, agent_name=agent_name)
+    agent_kwargs = {
+        **(get_agent_config(agent_name) or {}),
+        "bypass_throttle": bypass_throttle,
+        "bypass_market_hours": bypass_market_hours,
+    }
+    agent = _build_agent_instance(
+        agent_cls=agent_cls,
+        agent_name=agent_name,
+        kwargs=agent_kwargs,
+    )
 
     with log_context(
         trace_id=trace_id,

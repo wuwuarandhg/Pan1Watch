@@ -90,11 +90,15 @@ class AgentScheduler:
                     skipped = 0
                     errors: list[str] = []
                     for stock in list(context.watchlist):
-                        market_def = MARKETS.get(stock.market)
-                        if market_def and not market_def.is_trading_time():
+                        skip_reason = agent.schedule_skip_reason(stock)
+                        if skip_reason:
+                            market_def = MARKETS.get(stock.market)
+                            market_name = (
+                                market_def.name if market_def else str(stock.market)
+                            )
                             skipped += 1
                             logger.info(
-                                f"[调度] 跳过 {agent.display_name} {stock.symbol}（{market_def.name} 非交易时段）"
+                                f"[调度] 跳过 {agent.display_name} {stock.symbol}（{market_name} {skip_reason}）"
                             )
                             continue
                         try:

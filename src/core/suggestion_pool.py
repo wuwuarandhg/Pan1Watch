@@ -32,6 +32,7 @@ def _dedupe_window_minutes(agent_name: str) -> int:
 AGENT_EXPIRY_HOURS = {
     "premarket_outlook": 12,  # 盘前建议当日有效（约12小时）
     "intraday_monitor": 6,  # 盘中建议6小时有效
+    "postmarket_chart_monitor": 18,  # 盘后截图建议到次日盘前前后
     "daily_report": 16,  # 盘后建议隔夜有效（到次日开盘，约16小时）
     "news_digest": 12,  # 新闻速递建议半天有效
 }
@@ -40,6 +41,7 @@ AGENT_EXPIRY_HOURS = {
 AGENT_LABELS = {
     "premarket_outlook": "盘前分析",
     "intraday_monitor": "盘中监测",
+    "postmarket_chart_monitor": "盘后K线监控",
     "daily_report": "收盘复盘",
     "news_digest": "新闻速递",
     "fund_holding_analyst": "基金分析",
