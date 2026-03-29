@@ -1,4 +1,4 @@
-"""盘后 K 线截图监控 Agent - 收盘后基于日 K 截图做多模态分析"""
+"""盘后 K 线截图监控 Agent - 收盘后基于 K 线截图做多模态分析"""
 
 import logging
 from datetime import datetime
@@ -17,6 +17,16 @@ logger = logging.getLogger(__name__)
 PROMPT_PATH = (
     Path(__file__).parent.parent.parent / "prompts" / "postmarket_chart_monitor.md"
 )
+PERIOD_LABELS = {
+    "daily": "日K",
+    "weekly": "周K",
+    "monthly": "月K",
+}
+
+
+def _normalize_period(period: str | None) -> str:
+    value = (period or "daily").strip().lower()
+    return value if value in PERIOD_LABELS else "daily"
 
 
 def is_after_market_close(market: MarketCode, dt: datetime | None = None) -> bool:
@@ -39,11 +49,11 @@ def is_after_market_close(market: MarketCode, dt: datetime | None = None) -> boo
 
 
 class PostmarketChartMonitorAgent(IntradayMonitorAgent):
-    """收盘后截取持仓股票日 K，并用多模态 AI 给出持仓建议。"""
+    """收盘后截取持仓股票 K 线图，并用多模态 AI 给出持仓建议。"""
 
     name = "postmarket_chart_monitor"
     display_name = "盘后K线监控"
-    description = "A股收盘后截取持仓日K图，AI分析趋势、支撑压力和持仓建议"
+    description = "A股收盘后截取持仓K线图，支持日/周/月周期，AI分析趋势、支撑压力和持仓建议"
 
     def __init__(
         self,
@@ -63,11 +73,15 @@ class PostmarketChartMonitorAgent(IntradayMonitorAgent):
             event_only=False,
         )
         self.provider = (provider or "xueqiu").strip().lower() or "xueqiu"
-        self.period = (period or "daily").strip().lower() or "daily"
+        self.period = _normalize_period(period)
         self.holding_only = bool(holding_only)
         self.notify_on_hold = bool(notify_on_hold)
         self.notify_on_watch = bool(notify_on_watch)
         self._collector: ScreenshotCollector | None = None
+
+    @property
+    def period_label(self) -> str:
+        return PERIOD_LABELS.get(self.period, "日K")
 
     def schedule_skip_reason(self, stock) -> str | None:
         if getattr(stock, "market", None) != MarketCode.CN:
@@ -170,6 +184,7 @@ class PostmarketChartMonitorAgent(IntradayMonitorAgent):
 
         position = data.get("position") or {}
         kline = data.get("kline_summary") or {}
+        period_label = self.period_label
 
         def safe_num(value, precision=2):
             if value is None:
@@ -179,11 +194,18 @@ class PostmarketChartMonitorAgent(IntradayMonitorAgent):
         lines: list[str] = []
         lines.append(f"## 时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}")
         lines.append("## 任务")
-        lines.append("- 这是A股收盘后的持仓日K复盘，请优先结合提供的K线截图判断趋势和形态。")
+        lines.append(
+            f"- 这是A股收盘后的持仓{period_label}复盘，请优先结合提供的K线截图判断趋势和形态。"
+        )
         lines.append("- 结构化指标仅作辅助校验，不要忽略截图中的形态、趋势线、放量缩量和关键位置。")
+        if self.period != "daily":
+            lines.append(
+                f"- 当前截图周期为{period_label}；下面结构化技术摘要主要基于日线计算，仅作辅助参考，以截图中的{period_label}结构为主。"
+            )
 
         lines.append("\n## 股票信息")
         lines.append(f"- 股票：{stock.name}（{stock.symbol}）")
+        lines.append(f"- 截图周期：{period_label}")
         lines.append(f"- 收盘价：{safe_num(stock.current_price)}")
         lines.append(f"- 涨跌幅：{safe_num(stock.change_pct)}%")
         lines.append(
@@ -259,7 +281,7 @@ class PostmarketChartMonitorAgent(IntradayMonitorAgent):
             return AnalysisResult(
                 agent_name=self.name,
                 title=f"【{self.display_name}】{stock.name}",
-                content="未能获取到日K截图，请检查截图链路或稍后重试。",
+                content=f"未能获取到{self.period_label}截图，请检查截图链路或稍后重试。",
                 raw_data={**data, "should_alert": False},
             )
 
@@ -362,7 +384,7 @@ class PostmarketChartMonitorAgent(IntradayMonitorAgent):
             quality={"score": 100 if image_paths else 0},
         )
 
-        title = f"【{self.display_name}】{stock.name} 日K复盘"
+        title = f"【{self.display_name}】{stock.name} {self.period_label}复盘"
         if context.model_label:
             content = content.rstrip() + f"\n\n---\nAI: {context.model_label}"
 

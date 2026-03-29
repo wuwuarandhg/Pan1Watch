@@ -120,7 +120,7 @@ AGENT_SEED_SPECS: tuple[AgentSeedSpec, ...] = (
     AgentSeedSpec(
         name="postmarket_chart_monitor",
         display_name="盘后K线监控",
-        description="A股收盘后截取持仓日K图，AI分析趋势、支撑压力和持仓建议",
+        description="A股收盘后截取持仓K线图，支持日/周/月周期，AI分析趋势、支撑压力和持仓建议",
         enabled=False,
         schedule="30 15 * * 1-5",
         execution_mode="single",

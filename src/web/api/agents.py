@@ -23,6 +23,7 @@ from src.core.agent_catalog import (
 )
 
 logger = logging.getLogger(__name__)
+_POSTMARKET_PERIODS = {"daily", "weekly", "monthly"}
 
 _SCAN_CACHE_LOCK = threading.Lock()
 _SCAN_CACHE: dict[str, tuple[float, dict]] = {}
@@ -203,6 +204,14 @@ class AgentConfigResponse(BaseModel):
         from_attributes = True
 
 
+def _normalize_agent_config(agent_name: str, config: dict | None) -> dict:
+    cfg = dict(config or {})
+    if agent_name == "postmarket_chart_monitor":
+        period = str(cfg.get("period") or "daily").strip().lower()
+        cfg["period"] = period if period in _POSTMARKET_PERIODS else "daily"
+    return cfg
+
+
 class AgentRunResponse(BaseModel):
     id: int
     agent_name: str
@@ -280,8 +289,11 @@ def update_agent(
     if not agent:
         raise HTTPException(404, f"Agent {agent_name} 不存在")
 
+    updated_fields = set(update.model_dump(exclude_unset=True).keys())
     for key, value in update.model_dump(exclude_unset=True).items():
         setattr(agent, key, value)
+
+    agent.config = _normalize_agent_config(agent.name, agent.config)
 
     # capability 仅支持手动调用，不参与调度。
     kind = (agent.kind or "").strip() or infer_agent_kind(agent.name)
@@ -291,6 +303,15 @@ def update_agent(
 
     db.commit()
     db.refresh(agent)
+
+    if kind == AGENT_KIND_WORKFLOW and updated_fields & {"enabled", "schedule", "config"}:
+        try:
+            from server import reload_scheduler
+
+            reload_scheduler()
+        except Exception:
+            logger.exception("Agent 配置更新后重载调度器失败: %s", agent_name)
+
     return _agent_to_response(agent)
 
 

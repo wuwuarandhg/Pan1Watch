@@ -86,6 +86,8 @@ interface ScheduleConfig {
   cron?: string      // 自定义 cron
 }
 
+type PostmarketPeriod = 'daily' | 'weekly' | 'monthly'
+
 // cron 转友好配置
 function parseCronToConfig(cron: string): ScheduleConfig {
   if (!cron) return { type: 'daily', time: '15:30' }
@@ -177,6 +179,7 @@ export default function AgentsPage() {
   const [runsOpen, setRunsOpen] = useState<Record<string, boolean>>({})
   const [runsLoading, setRunsLoading] = useState<Record<string, boolean>>({})
   const [runs, setRuns] = useState<Record<string, AgentRun[] | { error: string }>>({})
+  const [configSavingAgent, setConfigSavingAgent] = useState<string | null>(null)
 
   const { toast } = useToast()
 
@@ -456,6 +459,32 @@ export default function AgentsPage() {
     setScheduleConfig(parseCronToConfig(agent.schedule))
   }
 
+  const getPostmarketPeriod = (agent: AgentConfig): PostmarketPeriod => {
+    const period = typeof agent.config?.period === 'string' ? agent.config.period : 'daily'
+    return period === 'weekly' || period === 'monthly' ? period : 'daily'
+  }
+
+  const updateAgentConfig = async (agent: AgentConfig, patch: Record<string, unknown>, message: string) => {
+    setConfigSavingAgent(agent.name)
+    try {
+      await fetchAPI(`/agents/${agent.name}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          config: {
+            ...(agent.config || {}),
+            ...patch,
+          },
+        }),
+      })
+      await load()
+      toast(message, 'success')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '配置更新失败', 'error')
+    } finally {
+      setConfigSavingAgent(null)
+    }
+  }
+
   const saveSchedule = async () => {
     if (!scheduleDialogAgent) return
     const cron = configToCron(scheduleConfig)
@@ -612,6 +641,30 @@ export default function AgentsPage() {
                           </SelectContent>
                         </Select>
                       </div>
+
+                      {agent.name === 'postmarket_chart_monitor' && (
+                        <div className="flex items-center gap-2">
+                          <Settings2 className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                          <span className="text-[12px] text-muted-foreground">K线周期</span>
+                          <Select
+                            value={getPostmarketPeriod(agent)}
+                            onValueChange={val => updateAgentConfig(agent, { period: val as PostmarketPeriod }, 'K线周期已更新')}
+                            disabled={configSavingAgent === agent.name}
+                          >
+                            <SelectTrigger className="h-7 text-[12px] w-auto min-w-[120px] px-2.5 bg-accent/50 border-border/50">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="daily">日K</SelectItem>
+                              <SelectItem value="weekly">周K</SelectItem>
+                              <SelectItem value="monthly">月K</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <span className="text-[11px] text-muted-foreground">
+                            用于截图分析周期
+                          </span>
+                        </div>
+                      )}
 
                       {/* Notify Channel multi-select */}
                       {channels.length > 0 && (
