@@ -1,9 +1,12 @@
 """PanWatch 统一服务入口 - Web 后台 + Agent 调度"""
 
+import asyncio
 import logging
 import os
 import time
 import inspect
+from concurrent.futures import Future as ThreadFuture
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -49,6 +52,7 @@ logger = logging.getLogger(__name__)
 scheduler: AgentScheduler | None = None
 price_alert_scheduler: PriceAlertScheduler | None = None
 context_maintenance_scheduler: ContextMaintenanceScheduler | None = None
+_scheduler_loop: asyncio.AbstractEventLoop | None = None
 
 
 def setup_ssl():
@@ -901,20 +905,57 @@ def build_scheduler() -> AgentScheduler:
     return sched
 
 
-def reload_scheduler() -> bool:
-    """重载调度器（用于配置导入/批量修改后立即生效）"""
+def _reload_scheduler_in_loop() -> bool:
+    """在主事件循环线程内重载调度器。"""
     global scheduler
+    current = globals().get("scheduler")
+    if current:
+        try:
+            current.shutdown()
+        except Exception:
+            pass
+    scheduler = build_scheduler()
+    scheduler.start()
+    logger.info("Agent 调度器已重载")
+    return True
+
+
+def reload_scheduler(timeout_seconds: float = 5.0) -> bool:
+    """重载调度器（用于配置导入/批量修改后立即生效）"""
+    global _scheduler_loop
+
+    loop = _scheduler_loop
+    if not loop or loop.is_closed():
+        logger.error("Agent 调度器重载失败: scheduler loop 不可用")
+        return False
+
     try:
-        current = globals().get("scheduler")
-        if current:
-            try:
-                current.shutdown()
-            except Exception:
-                pass
-        scheduler = build_scheduler()
-        scheduler.start()
-        logger.info("Agent 调度器已重载")
-        return True
+        running_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        running_loop = None
+
+    if running_loop is loop:
+        try:
+            return _reload_scheduler_in_loop()
+        except Exception as e:
+            logger.error(f"Agent 调度器重载失败: {e}")
+            return False
+
+    result: ThreadFuture[bool] = ThreadFuture()
+
+    def _reload_callback():
+        try:
+            result.set_result(_reload_scheduler_in_loop())
+        except Exception as e:
+            logger.error(f"Agent 调度器重载失败: {e}")
+            result.set_result(False)
+
+    try:
+        loop.call_soon_threadsafe(_reload_callback)
+        return bool(result.result(timeout=timeout_seconds))
+    except FutureTimeoutError:
+        logger.error("Agent 调度器重载失败: 调度器重载超时")
+        return False
     except Exception as e:
         logger.error(f"Agent 调度器重载失败: {e}")
         return False
@@ -1201,7 +1242,8 @@ async def lifespan(app):
 
     threading.Thread(target=refresh_stock_cache, daemon=True).start()
 
-    global scheduler, price_alert_scheduler, context_maintenance_scheduler
+    global scheduler, price_alert_scheduler, context_maintenance_scheduler, _scheduler_loop
+    _scheduler_loop = asyncio.get_running_loop()
     scheduler = build_scheduler()
     scheduler.start()
     logger.info("Agent 调度器已启动")
@@ -1237,6 +1279,7 @@ async def lifespan(app):
     if context_maintenance_scheduler:
         context_maintenance_scheduler.shutdown()
         logger.info("上下文维护调度器已关闭")
+    _scheduler_loop = None
 
 
 # 模块级 app 实例，供 uvicorn reload 使用

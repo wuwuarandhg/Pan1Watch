@@ -7,6 +7,44 @@ from openai import AsyncOpenAI
 logger = logging.getLogger(__name__)
 
 
+def _extract_chat_content(response) -> str:
+    """从 OpenAI 兼容响应中提取文本内容。"""
+    if response is None:
+        raise RuntimeError("AI 返回空响应")
+
+    choices = getattr(response, "choices", None)
+    if not choices:
+        raise RuntimeError("AI 返回缺少 choices")
+
+    first_choice = choices[0]
+    message = getattr(first_choice, "message", None)
+    if message is None:
+        raise RuntimeError("AI 返回缺少 message")
+
+    content = getattr(message, "content", None)
+    if content is None:
+        raise RuntimeError("AI 返回空内容")
+
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        text_parts: list[str] = []
+        for part in content:
+            if isinstance(part, dict):
+                if part.get("type") == "text" and part.get("text"):
+                    text_parts.append(str(part["text"]))
+            else:
+                text = getattr(part, "text", None)
+                if text:
+                    text_parts.append(str(text))
+        if text_parts:
+            return "\n".join(text_parts)
+        raise RuntimeError("AI 返回的多段内容中不含文本")
+
+    return str(content)
+
+
 class AIClient:
     """OpenAI 协议兼容的 AI 客户端"""
 
@@ -69,7 +107,7 @@ class AIClient:
                     f"{response.usage.completion_tokens} = {response.usage.total_tokens}"
                 )
 
-            return response.choices[0].message.content or ""
+            return _extract_chat_content(response)
 
         except Exception as e:
             logger.error(f"AI 调用失败: {e}")
